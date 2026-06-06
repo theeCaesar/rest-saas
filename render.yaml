@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: restaurant-saas-api
+    runtime: node
+    region: frankfurt
+    plan: starter
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_EXPIRES_IN
+        value: 90d
+      - key: PORT
+        value: 8080
+    healthCheckPath: /health
