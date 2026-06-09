@@ -148,6 +148,36 @@ exports.createDoctor = catchAsync(async (req, res, next) => {
   });
 });
 
+// Public customer self-registration. The tenant is resolved from the
+// x-tenant header / subdomain (resolveTenant runs before this), so the new
+// account is attached to the correct restaurant with the `customer` role.
+exports.register = catchAsync(async (req, res, next) => {
+  const { name, email, phone, password } = req.body;
+  if (!name || !password || (!email && !phone)) {
+    return next(
+      new AppError("Please provide name, email or phone, and password", 400),
+    );
+  }
+  if (!req.restaurantId) {
+    return next(new AppError("Tenant not specified", 400));
+  }
+  if (email) {
+    const existing = await User.findOne({ email });
+    if (existing) {
+      return next(new AppError("User already exists with this email", 400));
+    }
+  }
+  const user = await User.create({
+    name,
+    email,
+    phone,
+    password,
+    role: "customer",
+    restaurant: req.restaurantId,
+  });
+  await createSendToken(user, 201, req, res);
+});
+
 exports.login = catchAsync(async (req, res, next) => {
   const { email, password, phone } = req.body;
   if ((!email && !phone) || !password) {

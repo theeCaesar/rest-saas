@@ -109,7 +109,8 @@ app.use("/api/v1", (req, res, next) => {
   const p = req.path;
   const exempt =
     p === "/auth/login" ||
-    p === "/auth/register" ||
+    // /auth/register is intentionally NOT exempt: a customer registers under a
+    // specific tenant, so resolveTenant must set req.restaurantId for it.
     p === "/auth/forgot-password" ||
     p === "/auth/reset-password" ||
     p === "/public" ||
