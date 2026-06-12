@@ -55,6 +55,34 @@ exports.getToday = catchAsync(async (req, res, next) => {
   });
 });
 
+// GET /api/v1/subscriber-meals/mine — the requesting user's own meals.
+// Defaults to today (for the account "وجبة اليوم" card); ?upcoming=true returns
+// today onward, ?all=true returns the full history.
+exports.getMine = catchAsync(async (req, res, next) => {
+  const filter = { restaurant: req.restaurantId, user: req.user._id };
+
+  if (req.query.all === "true") {
+    // no date constraint
+  } else if (req.query.upcoming === "true") {
+    const { start } = dayBounds(new Date());
+    filter.date = { $gte: start };
+  } else {
+    const { start, end } = dayBounds(req.query.date);
+    filter.date = { $gte: start, $lte: end };
+  }
+  if (req.query.status) filter.status = req.query.status;
+
+  const meals = await SubscriberMeal.find(filter)
+    .populate(POPULATE)
+    .sort("date mealNumber scheduledTime");
+
+  res.status(200).json({
+    status: "success",
+    results: meals.length,
+    data: { subscriberMeals: meals },
+  });
+});
+
 exports.getAllSubscriberMeals = catchAsync(async (req, res, next) => {
   const filter = { restaurant: req.restaurantId };
   if (req.query.status) filter.status = req.query.status;

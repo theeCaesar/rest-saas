@@ -55,6 +55,7 @@ const allowedOrigins = [
   /^https:\/\/.*\.yourdomain\.io$/, // any subdomain of your platform domain
   /^https:\/\/.*\.onrender\.com$/, // Render preview deploys
   /^https:\/\/.*\.vercel\.app$/, // Vercel deploys for frontend
+  /^http:\/\/localhost:\d+$/, // any localhost port in local dev (3000/3001/5173/…)
   "http://localhost:3000",
   "http://localhost:5173",
   "http://localhost:8080",

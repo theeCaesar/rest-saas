@@ -8,6 +8,10 @@ router.use(authController.protect);
 
 const OPS = ["admin", "manager", "kitchen", "dispatcher", "cashier"];
 
+// Current user's own meals (customers' account dashboard). Always scoped to
+// req.user, so it's safe for any authenticated role.
+router.get("/mine", subscriberMealController.getMine);
+
 // Dashboard hero query — today's meals for the tenant.
 router.get(
   "/today",
