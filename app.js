@@ -43,6 +43,11 @@ const branchRoutes = require("./routes/branchRoutes");
 const addressRoutes = require("./routes/addressRoutes");
 const subscriberMealRoutes = require("./routes/subscriberMealRoutes");
 const ticketRoutes = require("./routes/ticketRoutes");
+const reviewRoutes = require("./routes/reviewRoutes");
+const analyticsRoutes = require("./routes/analyticsRoutes");
+const reportRoutes = require("./routes/reportRoutes");
+const conversationRoutes = require("./routes/conversationRoutes");
+const driverLocationRoutes = require("./routes/driverLocationRoutes");
 
 const app = express();
 
@@ -155,6 +160,11 @@ app.use("/api/v1/branches", branchRoutes);
 app.use("/api/v1/addresses", addressRoutes);
 app.use("/api/v1/subscriber-meals", subscriberMealRoutes);
 app.use("/api/v1/tickets", ticketRoutes);
+app.use("/api/v1/reviews", reviewRoutes);
+app.use("/api/v1/analytics", analyticsRoutes);
+app.use("/api/v1/reports", reportRoutes);
+app.use("/api/v1/conversations", conversationRoutes);
+app.use("/api/v1/driver-locations", driverLocationRoutes);
 
 app.all("*", (req, res, next) => {
   next(new AppError(`Can't find ${req.originalUrl} on this server`, 404));

@@ -45,7 +45,8 @@ const mealSchema = new mongoose.Schema({
 
   // Stats (denormalized for fast queries)
   averageRating: { type: Number, default: 0 },
-  totalOrders: { type: Number, default: 0 },
+  totalRatings:  { type: Number, default: 0 },
+  totalOrders:   { type: Number, default: 0 },
 }, {
   timestamps: true,
   toJSON: { virtuals: true },

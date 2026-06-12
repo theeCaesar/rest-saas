@@ -100,10 +100,9 @@ const userSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
-    isActive: {
-      type: Boolean,
-      default: true,
-    },
+    isActive:      { type: Boolean, default: true },
+    ratingAvg:     { type: Number, default: 0 },
+    ratingCount:   { type: Number, default: 0 },
     passwordChangedAt: Date,
   },
   {

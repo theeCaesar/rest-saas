@@ -17,6 +17,11 @@ const SubscriberMeal = require("../models/subscriberMealModel");
 const Order = require("../models/orderModel");
 const Ticket = require("../models/ticketModel");
 const Invoice = require("../models/invoiceModel");
+const Review = require("../models/reviewModel");
+const Conversation = require("../models/conversationModel");
+const Message = require("../models/messageModel");
+const DriverLocation = require("../models/driverLocationModel");
+const Report = require("../models/reportModel");
 
 const DB = process.env.MONGO_URI || process.env.MONGODB_URI;
 const PASSWORD = "password123";
@@ -271,6 +276,11 @@ async function run() {
       Invoice.deleteMany({ restaurant: rid }),
       Order.deleteMany({ restaurant: rid }),
       Ticket.deleteMany({ restaurant: rid }),
+      Review.deleteMany({ restaurant: rid }),
+      Conversation.deleteMany({ restaurant: rid }),
+      Message.deleteMany({ restaurant: rid }),
+      DriverLocation.deleteMany({ restaurant: rid }),
+      Report.deleteMany({ restaurant: rid }),
       Meal.deleteMany({ restaurant: rid }),
       Category.deleteMany({ restaurant: rid }),
       Plan.deleteMany({ restaurant: rid }),
@@ -667,6 +677,198 @@ async function run() {
   }
   console.log(`Created ${orderCount} historical orders`);
 
+  // ── Step 12: reviews ─────────────────────────────────────────────────────────
+  const allDrivers = [
+    ...driversByBranch[karrada._id],
+    ...driversByBranch[mansour._id],
+  ];
+
+  const MEAL_COMMENTS = [
+    "وجبة لذيذة وصحية جداً",
+    "السعرات الحرارية دقيقة وحسيت بالفرق بعد أسبوع",
+    "كمية ممتازة وطعم رائع ما توقعته",
+    "الوجبة طازجة ومحضرة بعناية واضحة",
+    "أفضل مطعم دايت في بغداد بفارق كبير",
+    "طعم خيالي مع الحفاظ على القيمة الغذائية",
+    "أنصح الكل بتجربة هذا المطعم بجد",
+    "التغليف نظيف والحرارة مناسبة عند الاستلام",
+    "وجبة متكاملة من حيث البروتين والخضار",
+    "نظيف ومرتب وكل مرة بنفس الجودة",
+    "أنقذني هذا المطعم من الأكل غير الصحي",
+    "ما شاء الله تنظيم وجودة عالية",
+    "حسيت بفرق حقيقي في وزني بعد الاشتراك",
+    "الكميات مثل ما وصفوا بالضبط لا زيادة لا نقصان",
+    "طعمه زين وسعراته واضحة وما في مفاجآت",
+  ];
+  const DRIVER_COMMENTS = [
+    "سائق محترم جداً وتوصيل سريع",
+    "التوصيل في الوقت المحدد تماماً",
+    "أخذ الطلب بعناية ووصل ساخناً",
+    "خدمة ممتازة من السائق وأسلوب راقي",
+    "التوصيل سريع جداً ما توقعت هالسرعة",
+    "السائق كان لطيف ومتعاون ومبتسم",
+  ];
+
+  const reviewDocs = [];
+  // ~50 meal reviews
+  for (let i = 0; i < 50; i++) {
+    reviewDocs.push({
+      restaurant: rid,
+      author: pick(customers)._id,
+      authorRole: "customer",
+      targetType: "meal",
+      targetId: pick(meals)._id,
+      rating: weightedPick([[5, 40], [4, 35], [3, 20], [2, 3], [1, 2]]),
+      comment: pick(MEAL_COMMENTS),
+      isPublished: true,
+    });
+  }
+  // ~20 driver reviews
+  for (let i = 0; i < 20; i++) {
+    reviewDocs.push({
+      restaurant: rid,
+      author: pick(customers)._id,
+      authorRole: "customer",
+      targetType: "driver",
+      targetId: pick(allDrivers)._id,
+      rating: weightedPick([[5, 40], [4, 40], [3, 15], [2, 4], [1, 1]]),
+      comment: pick(DRIVER_COMMENTS),
+      isPublished: true,
+    });
+  }
+  // ~10 customer ratings (from admin)
+  for (let i = 0; i < 10; i++) {
+    reviewDocs.push({
+      restaurant: rid,
+      author: admin._id,
+      authorRole: "admin",
+      targetType: "customer",
+      targetId: pick(customers)._id,
+      rating: weightedPick([[5, 30], [4, 40], [3, 25], [2, 5]]),
+      isPublished: true,
+    });
+  }
+
+  await Review.insertMany(reviewDocs);
+  console.log(`Created ${reviewDocs.length} reviews`);
+
+  // Recompute denormalized averages explicitly (insertMany bypasses hooks)
+  const mealTargets     = [...new Set(reviewDocs.filter(r => r.targetType === "meal").map(r => String(r.targetId)))];
+  const driverTargets   = [...new Set(reviewDocs.filter(r => r.targetType === "driver").map(r => String(r.targetId)))];
+  const customerTargets = [...new Set(reviewDocs.filter(r => r.targetType === "customer").map(r => String(r.targetId)))];
+  for (const id of mealTargets)     await Review.recomputeAverage("meal",     id);
+  for (const id of driverTargets)   await Review.recomputeAverage("driver",   id);
+  for (const id of customerTargets) await Review.recomputeAverage("customer", id);
+  console.log("Recomputed averages for meals/drivers/customers");
+
+  // ── Step 13: conversations + messages ─────────────────────────────────────
+  const staffUser  = await User.findOne({ restaurant: rid, role: "admin" });
+  const allCustomerUsers = customers.slice(0, 10); // first 10 customers
+
+  // Find user docs corresponding to each customer
+  const CONVO_DEFS = [
+    { type: "customer_support", participants: [allCustomerUsers[0]._id, staffUser._id], msgs: ["السلام عليكم، عندي سؤال عن الاشتراك الأسبوعي", "أهلاً! تفضل، كيف أقدر أساعدك؟", "هل يمكن تغيير وجبة الكيتو بوجبة دجاج؟", "نعم بالتأكيد، سنُعدّل لك القائمة فوراً", "شكراً جزيلاً على التعاون السريع"] },
+    { type: "customer_support", participants: [allCustomerUsers[1]._id, staffUser._id], msgs: ["كيف أعرف محتوى السعرات في كل وجبة؟", "يمكنك الاطلاع على القائمة في تطبيقنا، كل وجبة مدوّن فيها السعرات والبروتين", "ممتاز شكراً", "عفواً، نتمنى لك يوماً صحياً"] },
+    { type: "customer_driver",  participants: [allCustomerUsers[2]._id, staffUser._id], msgs: ["وين السائق؟ مضى ٣٠ دقيقة", "آسفون جداً، السائق في الطريق ويصلك خلال ١٠ دقائق", "تمام شكراً"] },
+    { type: "customer_support", participants: [allCustomerUsers[3]._id, staffUser._id], msgs: ["أريد إيقاف اشتراكي مؤقتاً لأسبوع", "بالتأكيد سنوقفه، متى تريد الاستئناف؟", "بعد الجمعة القادمة", "تم، سيُستأنف الاشتراك يوم السبت"] },
+    { type: "staff",            participants: [staffUser._id, staffUser._id],           msgs: ["تنبيه: طلبات اليوم أكثر من المعتاد، يرجى التنسيق مع المطبخ", "تم التنسيق، المطبخ جاهز", "ممتاز"] },
+    { type: "customer_support", participants: [allCustomerUsers[4]._id, staffUser._id], msgs: ["هل الوجبات مناسبة لمريض السكري؟", "نعم لدينا وجبات خاصة بمرضى السكري بدون سكر مضاف", "ممتاز سأشترك غداً", "نسعد بخدمتك"] },
+    { type: "customer_driver",  participants: [allCustomerUsers[5]._id, staffUser._id], msgs: ["الوجبة وصلت باردة", "نعتذر منك، سنرسل بديلاً فوراً أو نعيد المبلغ", "أرسل بديل من فضلك", "تم إرسال الطلب مع أقرب سائق"] },
+    { type: "customer_support", participants: [allCustomerUsers[6]._id, staffUser._id], msgs: ["كيف أضيف عنوان توصيل جديد؟", "من صفحة الحساب اختر إدارة العناوين ثم أضف عنواناً جديداً", "شكراً وجدتها"] },
+    { type: "order",            participants: [allCustomerUsers[7]._id, staffUser._id], msgs: ["متى يصل طلبي؟", "السائق في الطريق، متوقع خلال ٢٠ دقيقة", "وصل الحمد لله شكراً"] },
+    { type: "customer_support", participants: [allCustomerUsers[8]._id, staffUser._id], msgs: ["أريد الاشتراك بثلاث وجبات في اليوم", "باقة الثلاث وجبات متاحة، سأرسل لك التفاصيل الآن", "ممتاز انتظر"] },
+  ];
+
+  let msgCount = 0;
+  for (const def of CONVO_DEFS) {
+    const uniqueParticipants = [...new Set(def.participants.map(String))];
+    const conv = await Conversation.create({
+      restaurant: rid,
+      type: def.type,
+      participants: uniqueParticipants,
+      lastMessageAt: daysAgo(randInt(0, 7)),
+      lastMessage: { text: def.msgs[def.msgs.length - 1], sender: uniqueParticipants[0], sentAt: daysAgo(randInt(0, 3)) },
+      unread: uniqueParticipants.map((u, idx) => ({ user: u, count: idx === 0 ? 0 : randInt(0, 2) })),
+      isActive: true,
+    });
+    let sender = uniqueParticipants[0];
+    for (const content of def.msgs) {
+      await Message.create({
+        restaurant: rid,
+        conversation: conv._id,
+        sender,
+        senderRole: sender === String(staffUser._id) ? "admin" : "customer",
+        content,
+        readBy: [{ user: sender, readAt: daysAgo(randInt(0, 3)) }],
+      });
+      // Alternate senders
+      sender = uniqueParticipants[uniqueParticipants.indexOf(sender) === 0 ? Math.min(1, uniqueParticipants.length - 1) : 0];
+      msgCount++;
+    }
+  }
+  console.log(`Created ${CONVO_DEFS.length} conversations, ${msgCount} messages`);
+
+  // ── Step 14: driver locations ─────────────────────────────────────────────
+  const locationStatuses = ["idle", "on_delivery", "returning", "on_delivery", "idle"];
+  const todayDispatched = await SubscriberMeal.find({
+    restaurant: rid,
+    status: "dispatched",
+    date: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) },
+  }).limit(allDrivers.length).lean();
+
+  for (let i = 0; i < allDrivers.length; i++) {
+    const driver = allDrivers[i];
+    const locStatus = pick(locationStatuses);
+    const delivery = locStatus === "on_delivery" ? todayDispatched[i] : null;
+    await DriverLocation.findOneAndUpdate(
+      { restaurant: rid, driver: driver._id },
+      {
+        restaurant: rid,
+        driver: driver._id,
+        location: {
+          lat: +(33.31 + (Math.random() - 0.5) * 0.1).toFixed(6),
+          lng: +(44.40 + (Math.random() - 0.5) * 0.1).toFixed(6),
+        },
+        heading: Math.floor(Math.random() * 360),
+        speed: locStatus === "idle" ? 0 : Math.floor(Math.random() * 60) + 10,
+        status: locStatus,
+        activeDeliveries: delivery ? [delivery._id] : [],
+        updatedAt: new Date(),
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+  }
+  console.log(`Created/updated ${allDrivers.length} driver locations`);
+
+  // ── Step 15: seed reports ─────────────────────────────────────────────────
+  const reportDefs = [
+    { title: "تقرير المبيعات — آخر ٣٠ يوم",       type: "sales" },
+    { title: "تقرير الاشتراكات — الشهر الحالي",    type: "subscriptions" },
+    { title: "تقرير التوصيل — آخر أسبوعين",        type: "delivery" },
+    { title: "تقرير أداء الموظفين — الشهر الحالي", type: "employee" },
+    { title: "التقرير المالي الشهري",               type: "financial" },
+  ];
+  for (const def of reportDefs) {
+    // Capture analytics data with a fakeReq/fakeRes pattern
+    let data = {};
+    const fakeReq = { restaurantId: rid, query: { from: daysAgo(30).toISOString(), to: new Date().toISOString() }, params: {}, user: { _id: admin._id } };
+    const fakeRes = { status() { return this; }, json(b) { data = b.data || {}; } };
+    const Analytics = require("../controllers/analyticsController");
+    const handlerMap = { sales: Analytics.overview, subscriptions: Analytics.subscriptions, delivery: Analytics.delivery, employee: Analytics.employees, financial: Analytics.overview };
+    try {
+      await (handlerMap[def.type] || Analytics.overview)(fakeReq, fakeRes, (e) => { if (e) throw e; });
+    } catch (_) { data = {}; }
+    await Report.create({
+      restaurant: rid,
+      title: def.title,
+      type: def.type,
+      dateRange: { from: daysAgo(30), to: new Date() },
+      data,
+      generatedBy: admin._id,
+    });
+  }
+  console.log(`Created ${reportDefs.length} reports`);
+
   // ── Step 11: summary ────────────────────────────────────────────────────────
   console.log("\n──────────── SEED SUMMARY ────────────");
   console.log(`Restaurant: Diet Food (slug: dietfood)`);
@@ -680,6 +882,10 @@ async function run() {
   console.log(`Active subscriptions: ${activeSubscriptions.length}`);
   console.log(`Today's subscriber meals: ${subscriberMealCount}`);
   console.log(`Historical orders: ${orderCount}`);
+  console.log(`Reviews: ${reviewDocs.length}`);
+  console.log(`Conversations: ${CONVO_DEFS.length} / Messages: ${msgCount}`);
+  console.log(`Driver locations: ${allDrivers.length}`);
+  console.log(`Reports: ${reportDefs.length}`);
   console.log("──────────────────────────────────────\n");
 
   await mongoose.connection.close();

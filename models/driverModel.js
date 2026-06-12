@@ -14,10 +14,9 @@ const driverSchema = new mongoose.Schema(
       required: true,
     },
     notes: String,
-    isActive: {
-      type: Boolean,
-      default: true,
-    },
+    isActive:      { type: Boolean, default: true },
+    averageRating: { type: Number, default: 0 },
+    totalRatings:  { type: Number, default: 0 },
   },
   {
     timestamps: true,
