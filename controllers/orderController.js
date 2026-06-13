@@ -23,72 +23,35 @@ exports.createOrder = catchAsync(async (req, res, next) => {
     req.body.client = client._id;
   }
 
-  // process items: deduct stock, calc prices
+  // process items: resolve meal, calc prices (restaurant meals are not
+  // variant/stock tracked — a meal has a single `price` and `isAvailable`).
   const processedItems = [];
   for (const item of req.body.items) {
     const meal = await Meal.findById(item.meal);
     if (!meal) {
       return next(new AppError(`Meal ${item.meal} not found`, 404));
     }
-
-    let variant;
-    if (item.variantId) {
-      variant = meal.variants.id(item.variantId);
-    } else {
-      // pick first active variant with stock
-      variant = meal.variants.find(
-        (v) => v.isActive && v.quantityInStock > 0,
-      );
-    }
-    if (!variant) {
-      return next(new AppError(`No available stock for ${meal.name}`, 400));
+    if (meal.isAvailable === false) {
+      return next(new AppError(`${meal.name} is not available`, 400));
     }
 
-    let quantityToDeduct = item.quantity;
-    if (item.sellingMode === "piece") {
-      quantityToDeduct = item.quantity; // pieces
-    }
-
-    if (variant.quantityInStock < quantityToDeduct) {
-      return next(
-        new AppError(
-          `Insufficient stock for ${meal.name}. Available: ${variant.quantityInStock}`,
-          400,
-        ),
-      );
-    }
-
-    // deduct
-    variant.quantityInStock -= quantityToDeduct;
-    await meal.save();
-
-    const originalPrice = item.sellingMode === "piece"
-      ? variant.originalPrice / (variant.piecesPerPack || 1)
-      : variant.originalPrice;
-
-    const sellingPrice = item.sellingPrice || (item.sellingMode === "piece"
-      ? (variant.recommendedPiecePrice || variant.recommendedSellingPrice / (variant.piecesPerPack || 1))
-      : (variant.recommendedSellingPrice || variant.originalPrice));
-
-    const totalPrice = sellingPrice * item.quantity;
-    const profit = totalPrice - originalPrice * item.quantity;
+    const quantity = Math.max(1, Number(item.quantity) || 1);
+    // No separate cost field on the meal — use price as the cost basis so
+    // profit is well-defined (0 unless the cashier overrides the price up).
+    const originalPrice = meal.price;
+    const sellingPrice = item.sellingPrice != null ? Number(item.sellingPrice) : meal.price;
+    const totalPrice = sellingPrice * quantity;
+    const profit = totalPrice - originalPrice * quantity;
 
     processedItems.push({
       meal: meal._id,
       mealName: meal.name,
-      variantId: variant._id,
       originalPrice,
-      recommendedSellingPrice: variant.recommendedSellingPrice,
       sellingPrice,
-      quantity: item.quantity,
-      sellingMode: item.sellingMode || "pack",
-      piecesPerPack: variant.piecesPerPack,
+      quantity,
       totalPrice,
       profit,
-      batchNumber: variant.batchNumber,
-      expireDate: variant.expireDate,
-      section: meal.section,
-      supplier: variant.supplier,
+      notes: item.notes,
     });
   }
 
@@ -116,7 +79,7 @@ exports.createOrder = catchAsync(async (req, res, next) => {
   for (const item of processedItems) {
     await Meal.findByIdAndUpdate(item.meal, {
       $inc: {
-        totalSold: item.quantity,
+        totalOrders: item.quantity,
         totalRevenue: item.totalPrice,
         totalProfit: item.profit,
       },

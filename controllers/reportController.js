@@ -35,12 +35,18 @@ exports.generateReport = catchAsync(async (req, res, next) => {
   };
   const handler = handlerMap[type] || analyticsCtrl.overview;
 
-  // Capture analytics output without sending an HTTP response
+  // Capture analytics output without sending an HTTP response.
+  // The analytics handlers resolve by calling res.json() (not next), so the
+  // fake res must resolve the promise from inside json(); next() only fires
+  // on error (catchAsync forwards thrown errors there).
   let analyticsData = {};
   const fakeReq = { restaurantId: req.restaurantId, query: { from, to }, params: {}, user: req.user };
-  const fakeRes = { status() { return this; }, json(body) { analyticsData = body.data || {}; } };
 
   await new Promise((resolve, reject) => {
+    const fakeRes = {
+      status() { return this; },
+      json(body) { analyticsData = body.data || {}; resolve(); },
+    };
     handler(fakeReq, fakeRes, (err) => (err ? reject(err) : resolve()));
   });
 
